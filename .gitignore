@@ -12,6 +12,6 @@ venv/
 .dockerignore
 Dockerfile
 dev.py
-guide
+guide*
 .env*
 temp.py
