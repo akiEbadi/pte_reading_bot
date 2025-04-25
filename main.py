@@ -91,66 +91,73 @@ def ask_gpt(user_key, prompt, preferred_model="gpt-4"):
 
     return "❌ None of the models are available for your key.", None
 
-@app.post("/webhook")
-async def telegram_webhook(req: Request):
-    body = await req.json()
-    message = body.get("message", {})
-    text = message.get("text", "")
-    chat_id = message.get("chat", {}).get("id")
+@app.post("/webhook/{token}")
+async def telegram_webhook(token: str,req: Request):
+    try:
+        if token != TOKEN:
+            return {"ok": False, "error": "Invalid token"}
 
-    if not text:
-        return {"ok": True}
+        body = await req.json()
+        message = body.get("message", {})
+        text = message.get("text", "")
+        chat_id = message.get("chat", {}).get("id")
 
-    # تنظیم کلید
-    if text.startswith("/setkey"):
-        _, key = text.split(maxsplit=1)
-        user_api_keys[chat_id] = key.strip()
-        send_message(chat_id, "✅ Your OpenAI key has been saved.")
-        return {"ok": True}
-
-    # تنظیم مدل
-    if text.startswith("/setmodel"):
-        _, model = text.split(maxsplit=1)
-        model = model.strip().lower()
-        if model not in ["gpt-3.5", "gpt-4"]:
-            send_message(chat_id, "❗ Invalid model. Please choose 'gpt-3.5' or 'gpt-4'.")
+        if not text:
             return {"ok": True}
-        user_models[chat_id] = model
-        send_message(chat_id, f"✅ Your preferred model '{model}' has been set.")
+
+        # تنظیم کلید
+        if text.startswith("/setkey"):
+            _, key = text.split(maxsplit=1)
+            user_api_keys[chat_id] = key.strip()
+            send_message(chat_id, "✅ Your OpenAI key has been saved.")
+            return {"ok": True}
+
+        # تنظیم مدل
+        if text.startswith("/setmodel"):
+            _, model = text.split(maxsplit=1)
+            model = model.strip().lower()
+            if model not in ["gpt-3.5", "gpt-4"]:
+                send_message(chat_id, "❗ Invalid model. Please choose 'gpt-3.5' or 'gpt-4'.")
+                return {"ok": True}
+            user_models[chat_id] = model
+            send_message(chat_id, f"✅ Your preferred model '{model}' has been set.")
+            return {"ok": True}
+
+        # بررسی انتخاب نوع تحلیل
+        if text in ["📖 تحلیل ریدینگ", "📘 توضیح گرامر", "➕ توضیح بیشتر"]:
+            user_modes[chat_id] = text
+            send_message(chat_id, "لطفاً متن خود را ارسال کنید.")
+            return {"ok": True}
+
+        if chat_id not in user_api_keys:
+            send_message(chat_id, "❗ Please set your OpenAI key first using /setkey YOUR_API_KEY")
+            return {"ok": True}
+
+        if chat_id not in user_modes:
+            send_keyboard(chat_id)
+            return {"ok": True}
+
+        key = user_api_keys[chat_id]
+        preferred_model = user_models.get(chat_id, "gpt-4")
+        selected_mode = user_modes.get(chat_id)
+
+        # ساخت پرامپت بر اساس انتخاب کاربر
+        if selected_mode == "📖 تحلیل ریدینگ":
+            prompt = make_analysis_prompt(text)
+        elif selected_mode == "📘 توضیح گرامر":
+            prompt = make_followup_prompt(text)
+        else:  # ➕ توضیح بیشتر
+            prompt = make_more_explanation_prompt(text)
+
+        result, used_model = ask_gpt(key, prompt, preferred_model)
+
+        if used_model:
+            final_response = f"*پاسخ بر اساس ChatGPT-{used_model}*\n\n{result}"
+        else:
+            final_response = result
+
+        send_message(chat_id, final_response[:4000])
         return {"ok": True}
-
-    # بررسی انتخاب نوع تحلیل
-    if text in ["📖 تحلیل ریدینگ", "📘 توضیح گرامر", "➕ توضیح بیشتر"]:
-        user_modes[chat_id] = text
-        send_message(chat_id, "لطفاً متن خود را ارسال کنید.")
-        return {"ok": True}
-
-    if chat_id not in user_api_keys:
-        send_message(chat_id, "❗ Please set your OpenAI key first using /setkey YOUR_API_KEY")
-        return {"ok": True}
-
-    if chat_id not in user_modes:
-        send_keyboard(chat_id)
-        return {"ok": True}
-
-    key = user_api_keys[chat_id]
-    preferred_model = user_models.get(chat_id, "gpt-4")
-    selected_mode = user_modes.get(chat_id)
-
-    # ساخت پرامپت بر اساس انتخاب کاربر
-    if selected_mode == "📖 تحلیل ریدینگ":
-        prompt = make_analysis_prompt(text)
-    elif selected_mode == "📘 توضیح گرامر":
-        prompt = make_followup_prompt(text)
-    else:  # ➕ توضیح بیشتر
-        prompt = make_more_explanation_prompt(text)
-
-    result, used_model = ask_gpt(key, prompt, preferred_model)
-
-    if used_model:
-        final_response = f"*پاسخ بر اساس ChatGPT-{used_model}*\n\n{result}"
-    else:
-        final_response = result
-
-    send_message(chat_id, final_response[:4000])
-    return {"ok": True}
+    except Exception as e:
+        print("❌ خطا:", e)
+        return {"ok": False, "error": str(e)}
