@@ -52,12 +52,21 @@ def send_message(chat_id, text, reply_markup=None):
 def send_keyboard(chat_id):
     keyboard = {
         "keyboard": [
-            [{"text": "📖 تحلیل ریدینگ"}, {"text": "📘 توضیح گرامر"}, {"text": "➕ توضیح بیشتر"}]
+            [{"text": "📖 تحلیل ریدینگ"}, {"text": "📘 توضیح گرامر"}, {"text": "➕ توضیح بیشتر"}],
+            [{"text": "🔄 تغییر مدل پیش‌فرض"}]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True
     }
     send_message(chat_id, "لطفاً نوع تحلیل مورد نظر را انتخاب کنید:", reply_markup=keyboard)
+
+def send_model_selection_keyboard(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "GPT-3.5", "callback_data": "gpt-3.5"}, {"text": "GPT-4", "callback_data": "gpt-4"}]
+        ]
+    }
+    send_message(chat_id, "لطفاً مدل پیش‌فرض خود را انتخاب کنید:", reply_markup=keyboard)
 
 def ask_gpt(user_key, prompt, preferred_model="gpt-4"):
     fallback_models = {
@@ -92,7 +101,7 @@ def ask_gpt(user_key, prompt, preferred_model="gpt-4"):
     return "❌ None of the models are available for your key.", None
 
 @app.post("/webhook/{token}")
-async def telegram_webhook(token: str,req: Request):
+async def telegram_webhook(token: str, req: Request):
     try:
         if token != TOKEN:
             return {"ok": False, "error": "Invalid token"}
@@ -129,6 +138,11 @@ async def telegram_webhook(token: str,req: Request):
             send_message(chat_id, "لطفاً متن خود را ارسال کنید.")
             return {"ok": True}
 
+        # بررسی انتخاب تغییر مدل پیش‌فرض
+        if text == "🔄 تغییر مدل پیش‌فرض":
+            send_model_selection_keyboard(chat_id)
+            return {"ok": True}
+
         if chat_id not in user_api_keys:
             send_message(chat_id, "❗ Please set your OpenAI key first using /setkey YOUR_API_KEY")
             return {"ok": True}
@@ -158,6 +172,25 @@ async def telegram_webhook(token: str,req: Request):
 
         send_message(chat_id, final_response[:4000])
         return {"ok": True}
+
     except Exception as e:
         print("❌ خطا:", e)
         return {"ok": False, "error": str(e)}
+
+@app.post("/webhook/callback/{token}")
+async def callback(token: str, req: Request):
+    try:
+        body = await req.json()
+        callback_query = body.get("callback_query", {})
+        chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
+        model_choice = callback_query.get("data")
+
+        if chat_id and model_choice:
+            user_models[chat_id] = model_choice  # ذخیره مدل انتخابی کاربر
+            send_message(chat_id, f"✅ مدل پیش‌فرض شما به '{model_choice}' تغییر کرد.")
+            return {"ok": True}
+
+    except Exception as e:
+        print("❌ خطا در مدیریت کال‌بک:", e)
+        return {"ok": False, "error": str(e)}
+
